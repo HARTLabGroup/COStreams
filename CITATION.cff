@@ -1,0 +1,15 @@
+cff-version: 1.1.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "XXX"
+  given-names: "XXX"
+  orcid: "https://orcid.org/XXXX"
+- family-names: "XXX"
+  given-names: "XXX"
+- family-names: "XXX"
+  given-names: "XXX"
+title: "Code from: XXX"
+version: XXXX
+date-released: XXXX-XX-XXXX
+doi: XXXX
+url: "XXXX"
