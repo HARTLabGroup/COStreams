@@ -1,0 +1,137 @@
+---
+title: "Calculating Euclidean and along-river distance between sites"
+author: "Sarah J. Hart and Daniel L. Preston"
+email: "sarah.hart@colostate.edu"
+date: '`r format(Sys.time(), "%B %d, %Y")`'
+output: 
+   officedown::rdocx_document:
+     reference_docx: WordTemplate.docx
+bibliography: references.bib
+csl: "`r here::here('ecology.csl')`"
+link-citations: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  results = FALSE,
+	message = FALSE,
+	warning = FALSE,
+	progress = FALSE,
+	cache = FALSE,
+	dpi = 300
+)
+
+set.seed(513)
+options(repos = c(CRAN = "http://cran.rstudio.com"))
+options(timeout=60*30) #timeout downloads that last longer than 30 minutes
+
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(
+  devtools,
+  knitr, # markdown documents
+  flextable, # plot tables
+  bookdown, # figure numbering in markdown
+  here, # easy file structure
+  tidyverse, # data manipulation
+  sf, # spatial data (new pkg)
+  archive, #unzipping .7z files
+  readxl, # read excel files
+  units, # support for measurement units
+  sfnetworks #spatialneworks
+)
+
+# Set custom plotting theme
+theme_new <- function(base_size = 9,base_family = "Helvetica"){
+  theme_classic(base_size = base_size, base_family = base_family) %+replace%
+    theme(
+      axis.line.x = element_line(color="black", linewidth = 0.25),
+      axis.line.y = element_line(color="black", linewidth = 0.25),
+      axis.title = element_text(size = 9),
+      axis.text = element_text(colour="black", size=8),
+      legend.key=element_rect(colour=NA, fill =NA),
+      panel.grid = element_blank(),   
+      plot.background = element_rect(fill = NA, colour = NA),
+      panel.border = element_rect(fill = NA, colour = NA),
+      panel.background = element_rect(fill = "white", colour = "black"), 
+      strip.background = element_rect(fill = "white"),
+      strip.text = element_text(size = 9)
+      
+    )
+}
+theme_set(theme_new())
+
+set_flextable_defaults(
+  font.family="Times", 
+  font.size=12,
+  line_spacing=1,
+  padding.bottom=1,
+  padding.top=1,
+  text.align='center')
+
+# Set directory structure for project
+dir.create(here("Data"), showWarnings = FALSE)
+dir.create(here("Data", "Spatial"), showWarnings = FALSE)
+dir.create(here("Results"), showWarnings = FALSE)
+dir.create(here("Results", "Figures"), showWarnings = FALSE)
+```
+
+# Data
+
+## Download data from NHDPlusV2
+
+# Calculate distance between points
+
+```{r import_Data}
+wbd <- st_read( here("Data", "Spatial", )) # read in watershed boundary data
+HUC8 <- c("17090001","17090002","17090003", "17090004","17090005","17090006", "17090007") # HUC8 codes for study area
+study.area <- wbd %>% filter(HUC_8 %in% HUC8) %>% st_union() # select study area and union watersheds
+streams <- st_read(here("Data", "Spatial", "COStream-edit.shp")) # read in NHDPlusV2 streams data
+
+sites <- read_csv(here("Data", "Jordan_site UTMs.csv")) %>% 
+  filter(!site =="UTE8") # read in site coordinates and remove UTE8 site (it is not in the study area)
+sites.sf = st_as_sf(sites, coords = c("top.utm.E", "top.utm.N"),  crs = 32613) 
+```
+
+## Euclidean distance
+
+First we calculated the Euclidean distance between sites using the *sf* package [@sf].
+
+```{r Calc_Euclidean}
+sites.dist.euclidean <- st_distance(sites.sf) %>% as.data.frame() %>% drop_units() # calculate euclidean distance between sites in meters and drop units so that data can be saved as csv
+colnames(sites.dist.euclidean) <- sites$site.cod # rename columns to site names
+row.names(sites.dist.euclidean) <- sites$site.code # rename rows to site names
+write.csv(sites.dist.euclidean, here("Results", "sites-euclidean.csv")) # write data to csv file 
+st_write(sites.sf, here("Data", "Spatial", "sites.shp"), append=F) # write data to shapefile for visualization
+```
+
+## Distance along rivers
+
+Next, we calculated the distance between sites along rivers using the *sfnetworks* package [@sfnetworks].
+
+```{r Calc_Stream}
+streams.sub <- streams %>% 
+  st_zm() %>% # drop M dimension
+  st_transform(st_crs(sites.sf)) %>% # reproject to UTM 10N
+  st_crop(st_bbox(st_buffer(sites.sf, dist=10000))) # crop to bounding box of sites
+
+streams.sub <- streams.sub  %>% 
+  st_union() %>% # dissolve lines and create nodes for every end point and intersection point
+  st_cast("LINESTRING") %>% # convert to linestring
+  as_sfnetwork(directed = FALSE) %>%  # create network object 
+  st_network_blend(sites.sf, tolerance=100)  %>% # snap sites to network
+  activate(edges) %>% # activate edges
+  st_as_sf() %>% # convert to sf object
+  st_write(here("Data", "Spatial", "edges.shp"), append=F) # write edges to file for visualization
+
+river.dist <- st_read(here("Data", "Spatial", "edges.shp")) %>% 
+  st_union() %>% # dissolve lines and create nodes for every end point and intersection point
+  st_cast("LINESTRING") %>% # convert to linestring
+  as_sfnetwork(directed = FALSE) %>%  # create network object
+  st_network_cost(from=sites.sf, to=sites.sf, direction="all")  # calculate distance along rivers between sites
+
+river.dist <- data.frame(river.dist, row.names=sites.sf$site.code) # convert to data frame
+colnames(river.dist) <- sites.sf$site.code # rename columns to site names
+write.csv(river.dist, here("Results", "sites-river.csv")) # write data to csv file
+```
+
+# References
