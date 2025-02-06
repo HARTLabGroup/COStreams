@@ -1,6 +1,6 @@
 ---
 title: "Calculating Euclidean and along-river distance between sites"
-author: "Sarah J. Hart and Daniel L. Preston"
+author: "Sarah J. Hart"
 email: "sarah.hart@colostate.edu"
 date: '`r format(Sys.time(), "%B %d, %Y")`'
 output: 
@@ -76,6 +76,7 @@ dir.create(here("Results", "Figures"), showWarnings = FALSE)
 ```
 
 # Data
+
 ```{r}
 sites <- read_csv(here("Data", "Jordan_sites.csv")) 
 sites.sf <- st_as_sf(sites, coords = c("UTM_easting", "UTM_northing"),  crs = 32613) 
@@ -83,6 +84,8 @@ st_write(sites.sf, here("Data", "Spatial", "sites.shp"), append=F)
 ```
 
 ## Download data from NHDPlusV2
+
+We downloaded high resultion hydrography data from the USGS NHDPlus Version 2 using the *nhdplusTools* package [@nhdplusTools].
 
 ```{r}
 library(nhdplusTools)
@@ -100,16 +103,18 @@ st_write(nhdplus.wbd8, here("Data", "Spatial", "NHDPlusV2", "NHDwbd8.shp"), appe
 st_write(nhdplus.flow, here("Data", "Spatial", "NHDPlusV2", "NHDFlowline.shp"), append=F)
 ```
 
-# Calculate distance between points
+We the manually digitized one stream that was not included in the NHDPlusV2 dataset using QGIS.
 
 ```{r import_Data}
 nhdplus.wbd8.sub <- nhdplus.wbd8 %>% filter(Name=="Alamosa-Trinchera")
 streams <- st_read(here("Data", "Spatial", "NHDPlusV2", "NHDFlowline-edit.shp")) %>% st_crop(nhdplus.wbd8.sub) # select only streams in Alamosa-Trinchera watershed
 ```
 
+# Calculate distance between point
+
 ## Euclidean distance
 
-First we calculated the Euclidean distance between sites using the *sf* package [@sf].
+We calculated the Euclidean distance between sites using the *sf* package [@sf].
 
 ```{r Calc_Euclidean}
 sites.dist.euclidean <- st_distance(sites.sf) %>% as.data.frame() %>% drop_units() # calculate euclidean distance between sites in meters and drop units so that data can be saved as csv
@@ -121,7 +126,7 @@ st_write(sites.sf, here("Data", "Spatial", "sites.shp"), append=F) # write data 
 
 ## Distance along rivers
 
-Next, we calculated the distance between sites along rivers using the *sfnetworks* package [@sfnetworks].
+We calculated the distance between sites along rivers using the *sfnetworks* package [@sfnetworks].
 
 ```{r Calc_Stream}
 streams.sub <- streams %>% 
