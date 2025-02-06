@@ -10,7 +10,8 @@ The project has the following structure:
 
 -   Code: All code written for this project
 
-    -   
+    -   CORiverDist.RMD: An R markdown file containing all code.
+_
     -   WordTemplate.docx: A Microsoft Word document used to a style template for generating AspenHabitatModelling.docx
 
     -   references.bib: A BibTeX file containing all information for all references used in the project
