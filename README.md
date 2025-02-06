@@ -10,14 +10,15 @@ The project has the following structure:
 
 -   Code: All code written for this project
 
-    -   
+    -   CORiverDist.RMD: An R markdown file containing all code.
+_
     -   WordTemplate.docx: A Microsoft Word document used to a style template for generating AspenHabitatModelling.docx
 
     -   references.bib: A BibTeX file containing all information for all references used in the project
 
 -   Data: All data used in this project
 
-    -   
+    -   Jordan_sites.csv: A CSV file containing UTM coordinates (UTM zone is 13 N) for all sites surveyed. Data was provided by D. Preston and J. Trujillo on Feb. 5, 2025.
 
 -   ecology.csl : A [Citation Style Language](https://citationstyles.org/) file used to format references following the formatting style provided by the journal *Ecology*
 
