@@ -76,20 +76,35 @@ dir.create(here("Results", "Figures"), showWarnings = FALSE)
 ```
 
 # Data
+```{r}
+sites <- read_csv(here("Data", "Jordan_sites.csv")) 
+sites.sf <- st_as_sf(sites, coords = c("UTM_easting", "UTM_northing"),  crs = 32613) 
+st_write(sites.sf, here("Data", "Spatial", "sites.shp"), append=F)
+```
 
 ## Download data from NHDPlusV2
+
+```{r}
+library(nhdplusTools)
+dir.create(here("Data", "Spatial", "NHDPlusV2"))
+studyarea <- sites.sf %>% st_buffer(100) %>% st_union() # create buffer around sites and union to create study area
+huc06 <- get_huc(AOI = studyarea, id = NULL, t_srs = NULL, buffer = 0.5, type = "huc06") # this downloads all of teh data for the Rio Grande Watershed
+huc12 <- get_huc(AOI = studyarea, id = NULL, t_srs = NULL, buffer = 0.5, type = "huc12")
+
+download_nhdplushr(nhd_dir=here("Data", "Spatial", "NHDPlusV2"), hu_list=huc06$huc6, download_files = TRUE, archive = FALSE)
+
+nhdplus.gdbs <- list.files(here("Data", "Spatial", "NHDPlusV2", "13"), pattern=".gdb", full.names=T)
+nhdplus.flow <- lapply(nhdplus.gdbs, function(x){read_sf(x, layer="NHDFlowline")}) %>% dplyr::bind_rows()
+nhdplus.wbd8 <-  lapply(nhdplus.gdbs, function(x){read_sf(x, layer="WBDHU8")}) %>% dplyr::bind_rows() 
+st_write(nhdplus.wbd8, here("Data", "Spatial", "NHDPlusV2", "NHDwbd8.shp"), append=F)
+st_write(nhdplus.flow, here("Data", "Spatial", "NHDPlusV2", "NHDFlowline.shp"), append=F)
+```
 
 # Calculate distance between points
 
 ```{r import_Data}
-wbd <- st_read( here("Data", "Spatial", )) # read in watershed boundary data
-HUC8 <- c("17090001","17090002","17090003", "17090004","17090005","17090006", "17090007") # HUC8 codes for study area
-study.area <- wbd %>% filter(HUC_8 %in% HUC8) %>% st_union() # select study area and union watersheds
-streams <- st_read(here("Data", "Spatial", "COStream-edit.shp")) # read in NHDPlusV2 streams data
-
-sites <- read_csv(here("Data", "Jordan_site UTMs.csv")) %>% 
-  filter(!site =="UTE8") # read in site coordinates and remove UTE8 site (it is not in the study area)
-sites.sf = st_as_sf(sites, coords = c("top.utm.E", "top.utm.N"),  crs = 32613) 
+nhdplus.wbd8.sub <- nhdplus.wbd8 %>% filter(Name=="Alamosa-Trinchera")
+streams <- st_read(here("Data", "Spatial", "NHDPlusV2", "NHDFlowline-edit.shp")) %>% st_crop(nhdplus.wbd8.sub) # select only streams in Alamosa-Trinchera watershed
 ```
 
 ## Euclidean distance
@@ -98,8 +113,8 @@ First we calculated the Euclidean distance between sites using the *sf* package 
 
 ```{r Calc_Euclidean}
 sites.dist.euclidean <- st_distance(sites.sf) %>% as.data.frame() %>% drop_units() # calculate euclidean distance between sites in meters and drop units so that data can be saved as csv
-colnames(sites.dist.euclidean) <- sites$site.cod # rename columns to site names
-row.names(sites.dist.euclidean) <- sites$site.code # rename rows to site names
+colnames(sites.dist.euclidean) <- sites$Site # rename columns to site names
+row.names(sites.dist.euclidean) <- sites$Site # rename rows to site names
 write.csv(sites.dist.euclidean, here("Results", "sites-euclidean.csv")) # write data to csv file 
 st_write(sites.sf, here("Data", "Spatial", "sites.shp"), append=F) # write data to shapefile for visualization
 ```
@@ -111,9 +126,8 @@ Next, we calculated the distance between sites along rivers using the *sfnetwork
 ```{r Calc_Stream}
 streams.sub <- streams %>% 
   st_zm() %>% # drop M dimension
-  st_transform(st_crs(sites.sf)) %>% # reproject to UTM 10N
-  st_crop(st_bbox(st_buffer(sites.sf, dist=10000))) # crop to bounding box of sites
-
+  st_transform(st_crs(sites.sf)) # reproject to UTM 13N
+ 
 streams.sub <- streams.sub  %>% 
   st_union() %>% # dissolve lines and create nodes for every end point and intersection point
   st_cast("LINESTRING") %>% # convert to linestring
@@ -129,8 +143,8 @@ river.dist <- st_read(here("Data", "Spatial", "edges.shp")) %>%
   as_sfnetwork(directed = FALSE) %>%  # create network object
   st_network_cost(from=sites.sf, to=sites.sf, direction="all")  # calculate distance along rivers between sites
 
-river.dist <- data.frame(river.dist, row.names=sites.sf$site.code) # convert to data frame
-colnames(river.dist) <- sites.sf$site.code # rename columns to site names
+river.dist <- data.frame(river.dist, row.names=sites.sf$Site) # convert to data frame
+colnames(river.dist) <- sites.sf$Site # rename columns to site names
 write.csv(river.dist, here("Results", "sites-river.csv")) # write data to csv file
 ```
 
