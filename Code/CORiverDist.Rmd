@@ -91,23 +91,64 @@ We downloaded high resultion hydrography data from the USGS NHDPlus Version 2 us
 library(nhdplusTools)
 dir.create(here("Data", "Spatial", "NHDPlusV2"))
 studyarea <- sites.sf %>% st_buffer(100) %>% st_union() # create buffer around sites and union to create study area
-huc06 <- get_huc(AOI = studyarea, id = NULL, t_srs = NULL, buffer = 0.5, type = "huc06") # this downloads all of teh data for the Rio Grande Watershed
-huc12 <- get_huc(AOI = studyarea, id = NULL, t_srs = NULL, buffer = 0.5, type = "huc12")
+huc06 <- get_huc(AOI = studyarea, id = NULL, t_srs = NULL, buffer = 0.5, type = "huc06") # this downloads all of the data for the Rio Grande Watershed
+huc12 <- get_huc(AOI = studyarea, id = NULL, t_srs = NULL, buffer = 0.5, type = "huc12") 
 
 download_nhdplushr(nhd_dir=here("Data", "Spatial", "NHDPlusV2"), hu_list=huc06$huc6, download_files = TRUE, archive = FALSE)
 
 nhdplus.gdbs <- list.files(here("Data", "Spatial", "NHDPlusV2", "13"), pattern=".gdb", full.names=T)
 nhdplus.flow <- lapply(nhdplus.gdbs, function(x){read_sf(x, layer="NHDFlowline")}) %>% dplyr::bind_rows()
+st_write(nhdplus.flow, here("Data", "Spatial", "NHDPlusV2", "NHDFlowline.shp"), append=F)
+
 nhdplus.wbd8 <-  lapply(nhdplus.gdbs, function(x){read_sf(x, layer="WBDHU8")}) %>% dplyr::bind_rows() 
 st_write(nhdplus.wbd8, here("Data", "Spatial", "NHDPlusV2", "NHDwbd8.shp"), append=F)
-st_write(nhdplus.flow, here("Data", "Spatial", "NHDPlusV2", "NHDFlowline.shp"), append=F)
+
+nhdplus.wbd10 <-  lapply(nhdplus.gdbs, function(x){read_sf(x, layer="WBDHU10")}) %>% dplyr::bind_rows() 
+st_write(nhdplus.wbd10, here("Data", "Spatial", "NHDPlusV2", "NHDwbd10.shp"), append=F)
+
+nhdplus.wbd12 <-  lapply(nhdplus.gdbs, function(x){read_sf(x, layer="WBDHU12")}) %>% dplyr::bind_rows() 
+st_write(nhdplus.wbd12, here("Data", "Spatial", "NHDPlusV2", "NHDwbd12.shp"), append=F)
+
+
 ```
 
 We the manually digitized one stream that was not included in the NHDPlusV2 dataset using QGIS.
 
 ```{r import_Data}
-nhdplus.wbd8.sub <- nhdplus.wbd8 %>% filter(Name=="Alamosa-Trinchera")
-streams <- st_read(here("Data", "Spatial", "NHDPlusV2", "NHDFlowline-edit.shp")) %>% st_crop(nhdplus.wbd8.sub) # select only streams in Alamosa-Trinchera watershed
+nhdplus.wbd12.sub <- nhdplus.wbd12 %>% filter(Name %in% c("East Fork Ute Creek","Headwaters Sangre de Cristo Creek", "Sawmill Gulch-Sangre de Cristo Creek", "Cottonwood Creek-Sangre de Cristo Creek", "Outlet Trinchera Creek", "Trinchera Creek-Smith Reservoir", "Mountain Home Reservoir-Trinchera Creek", "Indian Creek Ditch-Sangre de Cristo Creek", "West Indian Creek", "North Fork Trinchera Creek", "Headwaters Trinchera Creek"))
+
+st_write(nhdplus.wbd12.sub, here("Data", "Spatial", "NHDPlusV2", "NHDwbd12-studyarea.shp"), append=F)
+
+streams <- st_read(here("Data", "Spatial", "NHDPlusV2", "NHDFlowline-edit.shp")) %>% st_crop(nhdplus.wbd12.sub) %>% st_intersection(nhdplus.wbd12.sub) # select only streams in the study area
+st_write(streams, here("Data", "Spatial", "NHDPlusV2", "NHDFlowline-edit-studyarea.shp"), append=F)
+
+# First pull reach codes for streams that intersect with sites
+streams.sub <- streams %>% 
+  st_zm() %>% # drop M dimension
+  st_transform(st_crs(sites.sf)) # reproject to UTM 13N
+
+# First pull reach codes for streams that intersect with sites
+streams.sub.reach <- streams.sub[st_nearest_feature(sites.sf, streams.sub),] %>% pull(ReachCd) %>% na.omit() %>% unique() 
+
+## add in reach that connects manually digitized stream
+streams.sub.reach <- c(streams.sub.reach, "13010002006975", "13010002009345", "13010002009213", "13010002009392", "13010002008982", "13010002009186")
+
+## add canal that connects Trinchera Creek to the Sangre de Cristo Creek
+streams.sub.reach <- c(streams.sub.reach, "13010002002028")
+
+# Pull names (not all reaches have names)
+streams.sub.names <- streams.sub[st_nearest_feature(sites.sf, streams.sub),] %>% pull(GNIS_Nm) %>% na.omit() %>% unique() 
+streams %>% filter(ReachCd %in% streams.sub.reach | GNIS_Nm %in% streams.sub.names) %>% st_write(here("Data", "Spatial", "NHDPlusV2", "NHDFlowline-edit-studyarea-subset.shp"), append=F)
+
+# Pull sites within study area
+studyarea <- st_read(here("Data", "Spatial", "NHDPlusV2", "NHDwbd12-studyarea.shp")) %>% 
+  st_zm() %>% # drop M dimension
+  st_transform(st_crs(sites.sf)) # reproject to UTM 13N
+
+sites.sub <- st_intersection(sites.sf, studyarea) 
+st_write(sites.sub, here("Data", "Spatial", "sites-subset.shp"), append=F)
+
+#
 ```
 
 # Calculate distance between point
@@ -133,11 +174,13 @@ streams.sub <- streams %>%
   st_zm() %>% # drop M dimension
   st_transform(st_crs(sites.sf)) # reproject to UTM 13N
  
-streams.sub <- streams.sub  %>% 
+streams.network <- streams.sub  %>% 
   st_union() %>% # dissolve lines and create nodes for every end point and intersection point
   st_cast("LINESTRING") %>% # convert to linestring
   as_sfnetwork(directed = FALSE) %>%  # create network object 
-  st_network_blend(sites.sf, tolerance=100)  %>% # snap sites to network
+  st_network_blend(sites.sf, tolerance=100)   # snap sites to network
+
+streams.network %>% 
   activate(edges) %>% # activate edges
   st_as_sf() %>% # convert to sf object
   st_write(here("Data", "Spatial", "edges.shp"), append=F) # write edges to file for visualization
@@ -151,6 +194,12 @@ river.dist <- st_read(here("Data", "Spatial", "edges.shp")) %>%
 river.dist <- data.frame(river.dist, row.names=sites.sf$Site) # convert to data frame
 colnames(river.dist) <- sites.sf$Site # rename columns to site names
 write.csv(river.dist, here("Results", "sites-river.csv")) # write data to csv file
+```
+
+
+```{r}
+
+
 ```
 
 # References
